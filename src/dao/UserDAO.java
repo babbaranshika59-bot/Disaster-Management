@@ -122,10 +122,11 @@ public class UserDAO {
         String password = rs.getString("password");
         String role = rs.getString("role");
         switch (role) {
-            case "ADMIN": return new Administrator(id, name, phone, username, password);
-            case "COORDINATOR": return new RescueCoordinator(id, name, phone, username, password);
-            case "TEAM_MEMBER": return new RescueTeamMember(id, name, phone, username, password);
-            default: return new ReliefCampManager(id, name, phone, username, password);
-        }
+    case "ADMIN": return new Administrator(id, name, phone, username, password);
+    case "COORDINATOR": return new RescueCoordinator(id, name, phone, username, password);
+    case "TEAM_MEMBER": return new RescueTeamMember(id, name, phone, username, password);
+    case "CITIZEN": return new Citizen(id, name, phone, username, password);
+    default: return new ReliefCampManager(id, name, phone, username, password);
+}
     }
 }

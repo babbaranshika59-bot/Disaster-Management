@@ -11,7 +11,7 @@ import thread.*;
 import util.DataStore;
 import util.InputHelper;
 import java.io.IOException;
-// import java.util.List;
+import java.util.List;
 
 public class MainMenu {
     private static final String[][] MENU = {
@@ -25,6 +25,7 @@ public class MainMenu {
     private final PriorityManager priorityManager = new PriorityManager();
     private final UserService userService = new UserService();
     private final IncidentService incidentService = new IncidentService(priorityManager);
+    private final CitizenReportService citizenReports = new CitizenReportService(incidentService);
     private final TeamService teamService = new TeamService();
     private final ResourceService resourceService = new ResourceService();
     private final CampService campService = new CampService();
@@ -47,19 +48,29 @@ public class MainMenu {
         System.out.println("=======================================================");
         System.out.println("  RESCUEGRID - Intelligent Disaster Response System");
         System.out.println("=======================================================");
-        if (!login()) {
-            System.out.println("Too many failed attempts. Goodbye.");
-            return;
+        loadUsersAtStart();
+        boolean demoAsked = false;
+        while (entryMenu()) {                 // login screen; returns false on Exit
+            if (currentUser instanceof Citizen) {
+                citizenMenu();
+                continue;                     // after logout, back to the login screen
+            }
+            if (currentUser instanceof Administrator && !demoAsked) {
+                demoAsked = true;
+                if (in.readYesNo("Load sample demo data")) seedDemoData();
+            }
+            staffMenu();
         }
-        if (in.readYesNo("Load sample demo data")) seedDemoData();
+    }
 
+    private void staffMenu() {
         boolean running = true;
         while (running) {
             showMainMenu();
             int choice = in.readInt("Enter choice: ", 1, 12);
             if (choice == 12) {
                 stopMonitor();
-                System.out.println("Thank you for using RescueGrid. Stay safe!");
+                System.out.println("Logged out. Back to the login screen.");
                 running = false;
                 continue;
             }
@@ -80,6 +91,103 @@ public class MainMenu {
                 case 10: fileMenu(); break;
                 default: databaseMenu(); break;
             }
+        }
+    }
+
+    // ------------------------------------------------------------ entry screen (before login)
+    private boolean entryMenu() {
+        while (true) {
+            System.out.println("\n1. Login\n2. Register new account (citizen)\n3. Exit");
+            int ch = in.readInt("Choice: ", 1, 3);
+            try {
+                switch (ch) {
+                    case 1:
+                        if (login()) return true;
+                        break;
+                    case 2: selfRegister(); break;
+                    default:
+                        System.out.println("Goodbye.");
+                        return false;
+                }
+            } catch (InvalidInputException e) {
+                error(e);
+            }
+        }
+    }
+
+    /** Anyone can create a Citizen account. Staff accounts are created only by the Administrator (module 1). */
+    private void selfRegister() {
+        User u = userService.registerUser(5, in.readString("Full name: "),
+                in.readString("Phone (10 digits): "), in.readString("Username: "), in.readString("Password: "));
+        saveUserQuietly(u);
+        ok("Account created. Your user ID is " + u.getUserId() + ". You can login now.");
+    }
+
+    // ------------------------------------------------------------ citizen menu
+    private void citizenMenu() {
+        while (true) {
+            System.out.println("\n--- CITIZEN MENU ---");
+            System.out.println("1. Report an emergency\n2. View my reports\n0. Logout");
+            int ch = in.readInt("Choice: ", 0, 2);
+            if (ch == 0) {
+                System.out.println("Logged out. Stay safe!");
+                return;
+            }
+            try {
+                if (ch == 1) {
+                    String type = pickType();
+                    CitizenReport r = citizenReports.submit(currentUser, type, in.readString("Location: "),
+                            in.readString("What happened: "), in.readInt("People affected (approx): ", 0, 10000000));
+                    ok("Report #" + r.getReportId() + " submitted. The administrator will review it.");
+                } else {
+                    DataStore.printAll(citizenReports.getByReporter(currentUser.getUserId()));
+                }
+            } catch (InvalidInputException e) {
+                error(e);
+            }
+        }
+    }
+
+    /** Tries to read saved users from MySQL. If the database is not ready, the program continues with memory only. */
+    private void loadUsersAtStart() {
+        try {
+            int count = 0;
+            for (User u : userDAO.findAll()) {
+                userService.addLoaded(u);
+                count++;
+            }
+            System.out.println("[INFO] " + count + " user(s) loaded from the database.");
+        } catch (RescueException e) {
+            System.out.println("[INFO] Database not available, starting with memory only. (" + e.getMessage() + ")");
+        }
+    }
+
+    /** Saves one user to MySQL right away; if that fails the user still works until the program is closed. */
+    private void saveUserQuietly(User u) {
+        try {
+            userDAO.save(u);
+        } catch (RescueException e) {
+            System.out.println("[WARN] Saved in memory only, not in the database: " + e.getMessage());
+        }
+    }
+
+    private void requireAdmin(String action) {
+        if (!(currentUser instanceof Administrator))
+            throw new InvalidInputException("Only the Administrator can " + action + ".");
+    }
+
+    private void reviewReports() {
+        requireAdmin("review citizen reports");
+        List<CitizenReport> pending = citizenReports.getPending();
+        DataStore.printAll(pending);
+        if (pending.isEmpty()) return;
+        int id = in.readInt("Report ID to review: ");
+        if (in.readYesNo("Approve this report")) {
+            Incident i = citizenReports.approve(id, pickSeverity());
+            ok("Approved. Incident #" + i.getIncidentId() + " added to the priority queue.");
+        } else {
+            citizenReports.reject(id, in.readString("Reason for rejection: "));
+            ok("Report rejected.");
         }
     }
 
@@ -127,6 +235,7 @@ public class MainMenu {
                         String username = in.readString("Username: ");
                         String password = in.readString("Password: ");
                         User u = userService.registerUser(role, name, phone, username, password);
+                        saveUserQuietly(u);
                         ok("User registered with ID " + u.getUserId());
                         break;
                     case 2: userService.displayAll(); break;
@@ -158,12 +267,13 @@ public class MainMenu {
         while (true) {
             System.out.println("\n--- DISASTER INCIDENT MANAGEMENT ---");
             System.out.println("1. Register incident\n2. Display all\n3. Search\n4. Update\n5. Mark resolved\n"
-                    + "6. Delete\n7. Display latest first (ListIterator)\n0. Back");
-            int ch = in.readInt("Choice: ", 0, 7);
+                    + "6. Delete\n7. Display latest first (ListIterator)\n8. Review pending citizen reports\n0. Back");
+            int ch = in.readInt("Choice: ", 0, 8);
             if (ch == 0) return;
             try {
                 switch (ch) {
                     case 1:
+                        requireAdmin("register incidents");
                         String type = pickType();
                         String loc = in.readString("Location: ");
                         String desc = in.readString("Description: ");
@@ -177,16 +287,22 @@ public class MainMenu {
                         break;
                     case 2: incidentService.displayAll(); break;
                     case 3: searchIncidents(); break;
-                    case 4: updateIncident(); break;
+                    case 4:
+                        requireAdmin("update incidents");
+                        updateIncident();
+                        break;
                     case 5:
+                        requireAdmin("resolve incidents");
                         incidentService.resolve(in.readInt("Incident ID: "));
                         ok("Incident marked as resolved.");
                         break;
                     case 6:
+                        requireAdmin("delete incidents");
                         incidentService.delete(currentUser, in.readInt("Incident ID: "));
                         ok("Incident deleted.");
                         break;
-                    default: incidentService.displayReverse();
+                    case 7: incidentService.displayReverse(); break;
+                    default: reviewReports();
                 }
             } catch (InvalidInputException e) {
                 error(e);
@@ -502,10 +618,12 @@ public class MainMenu {
                         ok("Allocated: " + a);
                         break;
                     case 4:
+                        requireAdmin("start operations");
                         operationService.start(in.readInt("Operation ID: "));
                         ok("Operation started.");
                         break;
                     case 5:
+                        requireAdmin("complete operations");
                         operationService.complete(in.readInt("Operation ID: "));
                         ok("Operation completed, teams released, incident resolved.");
                         break;

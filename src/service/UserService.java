@@ -36,6 +36,7 @@ public class UserService {
             case 2: u = new RescueCoordinator(id, name, phone, username, password); break;
             case 3: u = new RescueTeamMember(id, name, phone, username, password); break;
             case 4: u = new ReliefCampManager(id, name, phone, username, password); break;
+            case 5: u = new Citizen(id, name, phone, username, password); break;
             default: throw new InvalidInputException("Invalid role choice.");
         }
         users.put(id, u);
