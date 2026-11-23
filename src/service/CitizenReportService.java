@@ -1,3 +1,4 @@
+
 package service;
 
 import exception.InvalidInputException;
@@ -17,49 +18,91 @@ public class CitizenReportService {
         this.incidentService = incidentService;
     }
 
-    /** synchronized: many citizens can report at the same time. Name and phone come from the logged-in user. */
+    /** Submit a report from the logged-in citizen. */
     public synchronized CitizenReport submit(User reporter, String type, String location,
-                                             String description, int affected) {
+                                           String description, int affected) {
         String t = IncidentService.normalizeType(type);
-        if (t == null) throw new InvalidInputException("Unknown disaster type.");
-        if (affected < 0) throw new InvalidInputException("Affected people cannot be negative.");
+
+        if (t == null)
+            throw new InvalidInputException("Unknown disaster type.");
+
+        if (affected < 0)
+            throw new InvalidInputException("Affected people cannot be negative.");
+
         if (location.trim().isEmpty() || description.trim().isEmpty())
             throw new InvalidInputException("Location and description are required.");
-        CitizenReport r = new CitizenReport(reporter.getUserId(), reporter.getName(), reporter.getPhone(),
-                t, location.trim(), description.trim(), affected);
+
+        CitizenReport r = new CitizenReport(
+                reporter.getUserId(),
+                reporter.getName(),
+                reporter.getPhone(),
+                t,
+                location.trim(),
+                description.trim(),
+                affected
+        );
+
         reports.add(r);
         return r;
     }
 
     public synchronized List<CitizenReport> getPending() {
-        return reports.stream().filter(r -> r.getStatus().equals("PENDING")).collect(Collectors.toList());
+        return reports.stream()
+                .filter(r -> r.getStatus().equals("PENDING"))
+                .collect(Collectors.toList());
     }
 
-    /** Only the reports of one user (so a citizen cannot see other people's reports). */
+    /** Returns all citizen reports. */
+    public synchronized List<CitizenReport> getAllReports() {
+        return new ArrayList<>(reports);
+    }
+
+    /** Returns the number of pending reports. */
+    public synchronized int getPendingCount() {
+        return (int) reports.stream()
+                .filter(r -> r.getStatus().equals("PENDING"))
+                .count();
+    }
+
+    /** Returns reports belonging to a particular citizen. */
     public synchronized List<CitizenReport> getByReporter(int userId) {
-        return reports.stream().filter(r -> r.getReporterId() == userId).collect(Collectors.toList());
+        return reports.stream()
+                .filter(r -> r.getReporterId() == userId)
+                .collect(Collectors.toList());
     }
 
     private CitizenReport requirePending(int id) {
         for (CitizenReport r : reports) {
             if (r.getReportId() == id) {
                 if (!r.getStatus().equals("PENDING"))
-                    throw new InvalidInputException("Report #" + id + " is already " + r.getStatus() + ".");
+                    throw new InvalidInputException(
+                        "Report #" + id + " is already " + r.getStatus() + "."
+                    );
                 return r;
             }
         }
+
         throw new InvalidInputException("Report #" + id + " not found.");
     }
 
-    /** The administrator decides the severity; the report becomes a real Incident in the priority queue. */
+    /** Approves a report and creates an incident. */
     public synchronized Incident approve(int id, int severity) {
         CitizenReport r = requirePending(id);
-        Incident i = incidentService.createIncident(r.getType(), r.getLocation(),
-                r.getDescription(), r.getAffectedPeople(), severity, "");
+
+        Incident i = incidentService.createIncident(
+                r.getType(),
+                r.getLocation(),
+                r.getDescription(),
+                r.getAffectedPeople(),
+                severity,
+                ""
+        );
+
         r.approve();
         return i;
     }
 
+    /** Rejects a report. */
     public synchronized void reject(int id, String reason) {
         requirePending(id).reject(reason);
     }
