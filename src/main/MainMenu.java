@@ -655,83 +655,66 @@ public class MainMenu {
     }
 
     // Rescue team management
-    private void teamMenu() {
-        while (true) {
-            System.out.println("\n--- RESCUE TEAM MANAGEMENT ---");
-            System.out.println(
-                    "1. Register team\n2. Add member (from registered team members)\n3. Assign team to incident\n"
-                            + "4. Release team\n5. Display all teams\n6. Show available teams\n0. Back");
+    
+// Rescue team management
+private void teamMenu() {
+    while (true) {
+        System.out.println("\n--- RESCUE TEAM MANAGEMENT ---");
+        System.out.println(
+                "1. Register team\n" +
+                "2. Add member (from registered team members)\n" +
+                "3. Display all teams\n" +
+                "4. Show available teams\n" +
+                "0. Back");
 
-            int ch = in.readInt("Choice: ", 0, 6);
-            if (ch == 0)
-                return;
+        int ch = in.readInt("Choice: ", 0, 4);
 
-            try {
-                switch (ch) {
-                    case 1:
-                        RescueTeam t = teamService.registerTeam(
-                                in.readString("Team name: "),
-                                in.readString("Specialization: "));
+        if (ch == 0)
+            return;
 
-                        teamDAO.saveTeam(t);
+        try {
+            switch (ch) {
+                case 1:
+                    RescueTeam t = teamService.registerTeam(
+                            in.readString("Team name: "),
+                            in.readString("Specialization: "));
+                    ok("Team registered with ID " + t.getTeamId());
+                    break;
 
-                        ok("Team registered and saved with ID " + t.getTeamId());
-                        break;
-                    case 2:
-                        DataStore.printAll(userService.searchByRole("TEAM_MEMBER"));
+                case 2:
+                    DataStore.printAll(userService.searchByRole("TEAM_MEMBER"));
 
-                        int uid = in.readInt("User ID of the member: ");
+                    int uid = in.readInt("User ID of the member: ");
+                    User u = userService.findById(uid);
 
-                        User u = userService.findById(uid);
+                    if (!(u instanceof RescueTeamMember))
+                        throw new InvalidInputException(
+                                "That user is not a Rescue Team Member.");
 
-                        if (!(u instanceof RescueTeamMember)) {
-                            throw new InvalidInputException(
-                                    "That user is not a Rescue Team Member.");
-                        }
+                    RescueTeamMember m = (RescueTeamMember) u;
+                    m.setSkill(in.readString("Member skill: "));
 
-                        RescueTeamMember m = (RescueTeamMember) u;
+                    teamService.addMember(
+                            in.readInt("Team ID: "), m);
 
-                        m.setSkill(in.readString("Member skill: "));
+                    ok("Member added to the team.");
+                    break;
 
-                        int selectedTeamId = in.readInt("Team ID: ");
+                case 3:
+                    teamService.displayAll();
+                    break;
 
-                        teamService.addMember(selectedTeamId, m);
-
-                        RescueTeam selectedTeam = teamService.findById(selectedTeamId);
-
-                        teamDAO.saveTeam(selectedTeam);
-
-                        ok("Member added to team #" + selectedTeamId
-                                + " and saved. Current member count: "
-                                + selectedTeam.getMembers().size());
-
-                        break;
-
-                    case 3:
-                        int teamId = in.readInt("Team ID: ");
-                        teamService.assignTeam(
-                                teamId,
-                                incidentService.findById(in.readInt("Incident ID: ")));
-                        ok("Team assigned.");
-                        break;
-
-                    case 4:
-                        teamService.releaseTeam(in.readInt("Team ID: "));
-                        ok("Team released and available again.");
-                        break;
-
-                    case 5:
-                        teamService.displayAll();
-                        break;
-
-                    default:
-                        DataStore.printAll(teamService.findAvailable());
-                }
-            } catch (RescueException | InvalidInputException e) {
-                error(e);
+                case 4:
+                    DataStore.printAll(teamService.findAvailable());
+                    break;
             }
+
+        } catch (InvalidInputException e) {
+            error(e);
         }
     }
+}
+
 
     // Resource management
     private void resourceMenu() {
