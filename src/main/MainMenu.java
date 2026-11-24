@@ -167,15 +167,33 @@ public class MainMenu {
 
     // Citizen registration
     private void selfRegister() {
+
+        System.out.println("\n--- NEW USER REGISTRATION ---");
+        System.out.println("1. Citizen");
+        System.out.println("2. Rescue Team Member");
+
+        int choice = in.readInt("Select role: ", 1, 2);
+
+        int roleCode;
+
+        if (choice == 1) {
+            roleCode = 5;
+        } else {
+            roleCode = 3;
+        }
+
         User u = userService.registerUser(
-                5,
+                roleCode,
                 in.readString("Full name: "),
                 in.readString("Phone (10 digits): "),
                 in.readString("Username: "),
                 in.readString("Password: "));
 
         saveUserQuietly(u);
-        ok("Account created. Your user ID is " + u.getUserId() + ". You can login now.");
+
+        ok("Account created successfully as " + u.getRole()
+                + ". Your user ID is " + u.getUserId()
+                + ". You can login now.");
     }
 
     // Citizen menu
@@ -654,21 +672,39 @@ public class MainMenu {
                         RescueTeam t = teamService.registerTeam(
                                 in.readString("Team name: "),
                                 in.readString("Specialization: "));
-                        ok("Team registered with ID " + t.getTeamId());
-                        break;
 
+                        teamDAO.saveTeam(t);
+
+                        ok("Team registered and saved with ID " + t.getTeamId());
+                        break;
                     case 2:
                         DataStore.printAll(userService.searchByRole("TEAM_MEMBER"));
+
                         int uid = in.readInt("User ID of the member: ");
+
                         User u = userService.findById(uid);
 
-                        if (!(u instanceof RescueTeamMember))
-                            throw new InvalidInputException("That user is not a Rescue Team Member.");
+                        if (!(u instanceof RescueTeamMember)) {
+                            throw new InvalidInputException(
+                                    "That user is not a Rescue Team Member.");
+                        }
 
                         RescueTeamMember m = (RescueTeamMember) u;
+
                         m.setSkill(in.readString("Member skill: "));
-                        teamService.addMember(in.readInt("Team ID: "), m);
-                        ok("Member added to the team.");
+
+                        int selectedTeamId = in.readInt("Team ID: ");
+
+                        teamService.addMember(selectedTeamId, m);
+
+                        RescueTeam selectedTeam = teamService.findById(selectedTeamId);
+
+                        teamDAO.saveTeam(selectedTeam);
+
+                        ok("Member added to team #" + selectedTeamId
+                                + " and saved. Current member count: "
+                                + selectedTeam.getMembers().size());
+
                         break;
 
                     case 3:
@@ -1062,8 +1098,15 @@ public class MainMenu {
 
                     case 5:
                         String[] tables = {
-                                "users", "incidents", "rescue_teams", "resources", "relief_camps",
-                                "rescue_operations", "resource_allocations"
+                                "users",
+                                "incidents",
+                                "rescue_teams",
+                                "team_members",
+                                "resources",
+                                "relief_camps",
+                                "rescue_operations",
+                                "operation_teams",
+                                "resource_allocations"
                         };
 
                         for (String t : tables)
@@ -1113,11 +1156,35 @@ public class MainMenu {
     }
 
     private void loadAll() throws RescueException {
-        for (User u : userDAO.findAll())
+
+        for (User u : userDAO.findAll()) {
             userService.addLoaded(u);
+        }
 
         incidentService.replaceAll(incidentDAO.findAll());
-        teamService.replaceAll(teamDAO.findAllTeams());
+
+        List<RescueTeam> loadedTeams = teamDAO.findAllTeams();
+
+        teamService.replaceAll(loadedTeams);
+
+        // Restore team assignment in actual User objects
+        for (RescueTeam team : loadedTeams) {
+
+            for (RescueTeamMember loadedMember : team.getMembers()) {
+
+                User existingUser = userService.findById(loadedMember.getUserId());
+
+                if (existingUser instanceof RescueTeamMember) {
+
+                    RescueTeamMember actualMember = (RescueTeamMember) existingUser;
+
+                    actualMember.setTeamId(team.getTeamId());
+
+                    actualMember.setSkill(loadedMember.getSkill());
+                }
+            }
+        }
+
         resourceService.replaceAll(resourceDAO.findAll());
         campService.replaceAll(campDAO.findAll());
 
